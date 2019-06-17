@@ -1,9 +1,14 @@
 use std::collections::HashMap;
+use std::mem;
 
 use crate::problem::*;
 
+#[derive(Clone, Copy)]
+struct DisjunctionIndex(usize);
+
 pub struct State<'problem> {
     assigned: HashMap<Variable, AssignInfo>,
+    used_by: HashMap<Variable, Vec<DisjunctionIndex>>,
     disjunctions: Vec<DisjunctionInfo<'problem>>,
     unhandled_pure_vars: Vec<Variable>,
     unhandled_propogating_disjunctions: Vec<&'problem Disjunction>,
@@ -22,11 +27,13 @@ impl<'problem> State<'problem> {
         }
         let ndisjuncts = problem.disjunctions.len();
         let assigned = problem.vars().iter().map(init_var).collect();
+        let used_by = HashMap::new();
         let disjunctions = Vec::with_capacity(ndisjuncts);
         let unhandled_pure_vars = problem.vars().iter().map(|&v| v).collect();
         let unhandled_propogating_disjunctions = Vec::with_capacity(ndisjuncts);
         let mut res = State {
             assigned,
+            used_by,
             disjunctions,
             unhandled_pure_vars,
             unhandled_propogating_disjunctions,
@@ -47,24 +54,64 @@ impl<'problem> State<'problem> {
             self.assigned.get_mut(k).unwrap().use_counts[v] += 1;
         }
         let info = DisjunctionInfo::new(&self, disjunction);
+        let i = DisjunctionIndex(self.disjunctions.len());
         self.disjunctions.push(info);
         self.unhandled_propogating_disjunctions.push(disjunction);
-    }
-    fn using_rules<'a>(&'a mut self, var: Variable) -> Vec<&'a mut DisjunctionInfo> {
-        unimplemented!()
+        for (x, _) in disjunction.iter() {
+            self.used_by.get_mut(x).unwrap().push(i);
+        }
     }
     pub fn assign(&mut self, var: Variable, sig: Sign) {
         {
-            let v = self
-                .assigned
-                .get_mut(&var)
-                .unwrap_or_else(|| panic!("Missing var"));
+            let v = self.assigned.get_mut(&var).unwrap();
             assert!(v.sign.is_none());
             v.sign = Some(sig);
         }
-        for disinfo in self.using_rules(var) {
-            unimplemented!()
+        for &DisjunctionIndex(di) in &self.used_by[&var] {
+            let d = &mut self.disjunctions[di]; // TODO: Skip bounds check?
+            if d.disjunction[var] == sig {
+                d.satisfied += 1;
+                if d.satisfied == 1 {
+                    for (&k, &vsig) in d.disjunction.iter() {
+                        let uc = &mut self.assigned.get_mut(&k).unwrap().use_counts[vsig];
+                        *uc -= 1;
+                        if *uc == 0 {
+                            self.unhandled_pure_vars.push(k);
+                        }
+                    }
+                }
+            } else {
+                d.remaining -= 1;
+                if d.remaining == 1 {
+                    self.unhandled_propogating_disjunctions.push(d.disjunction);
+                }
+            }
         }
+    }
+    pub fn unassign(&mut self, var: Variable) {
+        let sig = {
+            let v = self.assigned.get_mut(&var).unwrap();
+            mem::replace(&mut v.sign, None).unwrap()
+        };
+        for &DisjunctionIndex(di) in &self.used_by[&var] {
+            let d = &mut self.disjunctions[di];
+            if d.disjunction[var] == sig {
+                d.satisfied -= 1;
+                if d.satisfied == 0 {
+                    for (k, &vsig) in d.disjunction.iter() {
+                        self.assigned.get_mut(k).unwrap().use_counts[vsig] += 1;
+                    }
+                }
+            } else {
+                d.remaining += 1;
+            }
+        }
+    }
+    pub fn get_and_clear_propagators(&mut self) -> Vec<&'problem Disjunction> {
+        mem::replace(&mut self.unhandled_propogating_disjunctions, Vec::new())
+    }
+    pub fn get_and_clear_pures(&mut self) -> Vec<Variable> {
+        mem::replace(&mut self.unhandled_pure_vars, Vec::new())
     }
 }
 

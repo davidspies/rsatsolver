@@ -26,6 +26,14 @@ impl Disjunction {
     }
 }
 
+impl Index<Variable> for Disjunction {
+    type Output = Sign;
+
+    fn index(&self, k: Variable) -> &Sign {
+        self.0.index(&k)
+    }
+}
+
 pub struct Problem {
     pub disjunctions: Vec<Disjunction>,
 }
