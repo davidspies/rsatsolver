@@ -26,17 +26,12 @@ impl<'problem> State<'problem> {
             )
         }
         let ndisjuncts = problem.disjunctions.len();
-        let assigned = problem.vars().iter().map(init_var).collect();
-        let used_by = HashMap::new();
-        let disjunctions = Vec::with_capacity(ndisjuncts);
-        let unhandled_pure_vars = problem.vars().iter().map(|&v| v).collect();
-        let unhandled_propogating_disjunctions = Vec::with_capacity(ndisjuncts);
         let mut res = State {
-            assigned,
-            used_by,
-            disjunctions,
-            unhandled_pure_vars,
-            unhandled_propogating_disjunctions,
+            assigned: problem.vars().iter().map(init_var).collect(),
+            used_by: HashMap::new(),
+            disjunctions: Vec::with_capacity(ndisjuncts),
+            unhandled_pure_vars: problem.vars().iter().map(|&v| v).collect(),
+            unhandled_propogating_disjunctions: Vec::with_capacity(ndisjuncts),
         };
         for disjunction in &problem.disjunctions {
             res.add_disjunction(disjunction);
@@ -94,7 +89,7 @@ impl<'problem> State<'problem> {
             mem::replace(&mut v.sign, None).unwrap()
         };
         for &DisjunctionIndex(di) in &self.used_by[&var] {
-            let d = &mut self.disjunctions[di];
+            let d = &mut self.disjunctions[di]; // TODO Skip bounds-check?
             if d.disjunction[var] == sig {
                 d.satisfied -= 1;
                 if d.satisfied == 0 {
